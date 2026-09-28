@@ -464,10 +464,17 @@ And off-site:
 ```bash
 cd /srv/jnu
 git pull
-npm ci
+npm ci --include=dev
 npm run build
 sudo systemctl restart jnu
 ```
+
+**`--include=dev` is not optional.** The build runs here, and `tsx`,
+`typescript`, `tailwindcss`, `postcss` and `autoprefixer` are devDependencies.
+`.env` sets `NODE_ENV=production`, so the moment that variable is in your shell —
+sourcing `.env` to run a `psql` query is enough, and it persists for the life of
+the tmux session — a plain `npm ci` silently omits them and the build dies at
+`sh: 1: tsx: not found`. The flag wins regardless of the environment.
 
 The site is down for a few seconds on restart. On this box the build is the
 slow part, and it competes with serving traffic — so **do not deploy during
