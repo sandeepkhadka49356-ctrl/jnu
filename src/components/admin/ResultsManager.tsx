@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getJson } from '@/lib/admin-client'
+import { getJson, move } from '@/lib/admin-client'
 import { Modal } from './ui'
 import {
   listResults,
@@ -13,6 +13,16 @@ import {
   type ResultRecord,
 } from '@/lib/store'
 import type { Subject } from '@/lib/store'
+import {
+  emptySubject,
+  fromSubject,
+  hasSplit,
+  subjectObtained,
+  subjectProblem,
+  subjectTotals,
+  toSubject,
+  type SubjectDraft,
+} from '@/lib/results-subjects'
 
 const SEMESTERS = [
   'Semester I', 'Semester II', 'Semester III', 'Semester IV',
@@ -52,6 +62,13 @@ export function ResultsManager() {
 
   const [rows, setRows] = useState<ResultRecord[]>([])
   const [form, setForm] = useState(emptyForm)
+  const [subjects, setSubjects] = useState<SubjectDraft[]>([])
+
+  // Null while there are no subject rows, and the two totals are typed by hand
+  // as they always were. Once a row exists the totals are summed from the rows
+  // instead: the server rejects a grand total that disagrees with its own
+  // subjects, so letting both be typed only creates a contradiction to report.
+  const addTotals = subjects.length > 0 ? subjectTotals(subjects) : null
   const [busy, setBusy] = useState(false)
   const [filter, setFilter] = useState('')
   const [editing, setEditing] = useState<ResultRecord | null>(null)
@@ -74,6 +91,12 @@ export function ResultsManager() {
       return
     }
 
+    const problem = subjectProblem(subjects)
+    if (problem) {
+      setMsg({ tone: 'err', text: problem })
+      return
+    }
+
     setBusy(true)
     const res = await addResult({
       roll_no: form.roll_no,
@@ -81,9 +104,9 @@ export function ResultsManager() {
       programme: form.programme,
       semester: form.semester,
       exam_session: form.exam_session,
-      subjects: [] as Subject[],
-      marks_obtained: Number(form.marks_obtained) || 0,
-      marks_max: Number(form.marks_max) || 0,
+      subjects: subjects.map(toSubject),
+      marks_obtained: addTotals ? addTotals.obtained : Number(form.marks_obtained) || 0,
+      marks_max: addTotals ? addTotals.max : Number(form.marks_max) || 0,
       sgpa: Number(form.sgpa) || 0,
       status: form.status,
     })
@@ -96,6 +119,7 @@ export function ResultsManager() {
 
     setMsg({ tone: 'ok', text: 'Result saved as a draft. Publish it when ready.' })
     setForm(emptyForm())
+    setSubjects([])
     load()
   }
 
@@ -177,24 +201,85 @@ export function ResultsManager() {
       return
     }
 
-    const records = lines.slice(1).map((line) => {
+    /*
+     * Two shapes, told apart by the header.
+     *
+     * Without subject columns: one row per student, exactly as before.
+     *
+     * With them: ONE ROW PER SUBJECT, the student's own columns repeated on
+     * each — which is the shape an exam cell's spreadsheet is already in, and
+     * the only flat one that copes with a variable number of papers.
+     * (subject1_code, subject2_code … would cap the count and leave most of
+     * the sheet empty.) Rows are grouped on roll number + semester + session,
+     * because the same student legitimately appears again for another semester.
+     */
+    const hasSubjectCols = header.some((h) => h.startsWith('subject_'))
+
+    type Draft = {
+      roll_no: string; student_name: string; programme: string; semester: string
+      exam_session: string; subjects: Subject[]; marks_obtained: number
+      marks_max: number; sgpa: number; status: ResultRecord['status']
+    }
+
+    const grouped = new Map<string, Draft>()
+
+    for (const line of lines.slice(1)) {
       const cells = line.split(',').map((c) => c.trim())
       const get = (k: string) => cells[header.indexOf(k)] ?? ''
       const num = (k: string) => Number(get(k)) || 0
 
-      return {
-        roll_no: get('roll_no'),
-        student_name: get('student_name'),
-        programme: get('programme') || form.programme,
-        semester: get('semester'),
-        exam_session: get('exam_session'),
-        subjects: [] as Subject[],
-        marks_obtained: num('marks_obtained'),
-        marks_max: num('marks_max'),
-        sgpa: num('sgpa'),
-        status: ((get('status') || 'PASS').toUpperCase() as ResultRecord['status']),
+      const key = `${get('roll_no')}|${get('semester')}|${get('exam_session')}`
+      let draft = grouped.get(key)
+
+      if (!draft) {
+        draft = {
+          roll_no: get('roll_no'),
+          student_name: get('student_name'),
+          programme: get('programme') || form.programme,
+          semester: get('semester'),
+          exam_session: get('exam_session'),
+          subjects: [],
+          marks_obtained: num('marks_obtained'),
+          marks_max: num('marks_max'),
+          sgpa: num('sgpa'),
+          status: ((get('status') || 'PASS').toUpperCase() as ResultRecord['status']),
+        }
+        grouped.set(key, draft)
       }
-    })
+
+      if (!hasSubjectCols) continue
+
+      const code = get('subject_code')
+      const name = get('subject_name')
+      if (!code && !name) continue
+
+      // Same rule as the form: fill either half and the total is their sum.
+      const split = get('subject_theory') !== '' || get('subject_practical') !== ''
+      const theory = num('subject_theory')
+      const practical = num('subject_practical')
+
+      draft.subjects.push({
+        code,
+        name,
+        max: num('subject_max'),
+        obtained: split ? theory + practical : num('subject_obtained'),
+        grade: get('subject_grade'),
+        ...(split ? { theory, practical } : {}),
+      })
+    }
+
+    const records = [...grouped.values()].map((d) =>
+      // Totals come from the subjects whenever there are any, so a sheet whose
+      // own total column disagrees is corrected rather than rejected by the
+      // server for a mismatch the typist cannot see from here.
+      d.subjects.length === 0
+        ? d
+        : {
+            ...d,
+            marks_obtained: d.subjects.reduce((s, x) => s + x.obtained, 0),
+            marks_max: d.subjects.reduce((s, x) => s + x.max, 0),
+          }
+    )
 
     const n = await importResults(records)
     setBusy(false)
@@ -204,9 +289,15 @@ export function ResultsManager() {
   }
 
   function downloadTemplate() {
+    // Three rows for one student, one per paper: the subject-wise shape is the
+    // one people get wrong from a column list alone, so the template shows it
+    // rather than describing it. Delete the subject_* columns and the last two
+    // rows to file totals only.
     const csv = [
-      'roll_no,student_name,programme,semester,exam_session,marks_obtained,marks_max,sgpa,status',
-      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,412,550,7.88,PASS',
+      'roll_no,student_name,programme,semester,exam_session,sgpa,status,subject_code,subject_name,subject_max,subject_theory,subject_practical,subject_obtained,subject_grade',
+      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,7.88,PASS,BT-401,Data Structures,100,62,18,,A',
+      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,7.88,PASS,BT-402,Operating Systems,100,71,,,A',
+      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,7.88,PASS,BT-403,Engineering Mathematics III,100,,,68,B',
     ].join('\n')
 
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
@@ -258,10 +349,12 @@ export function ResultsManager() {
             <Text id="exam_session" label="Exam Session" value={form.exam_session} onChange={(v) => setForm({ ...form, exam_session: v })} placeholder="Even 2025-26" />
             <Select id="status" label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as ResultRecord['status'] })} options={['PASS', 'FAIL', 'ATKT', 'WITHHELD']} />
 
-            <Text id="marks_obtained" label="Marks Obtained" value={form.marks_obtained} onChange={(v) => setForm({ ...form, marks_obtained: v })} placeholder="412" />
-            <Text id="marks_max" label="Maximum Marks" value={form.marks_max} onChange={(v) => setForm({ ...form, marks_max: v })} placeholder="550" />
+            <Text id="marks_obtained" label="Marks Obtained" value={addTotals ? String(addTotals.obtained) : form.marks_obtained} onChange={(v) => setForm({ ...form, marks_obtained: v })} placeholder="412" readOnly={!!addTotals} hint={addTotals ? 'Added up from the subjects below.' : undefined} />
+            <Text id="marks_max" label="Maximum Marks" value={addTotals ? String(addTotals.max) : form.marks_max} onChange={(v) => setForm({ ...form, marks_max: v })} placeholder="550" readOnly={!!addTotals} hint={addTotals ? 'Added up from the subjects below.' : undefined} />
             <Text id="sgpa" label="SGPA" value={form.sgpa} onChange={(v) => setForm({ ...form, sgpa: v })} placeholder="7.88" />
           </div>
+
+          <SubjectEditor idPrefix="add" value={subjects} onChange={setSubjects} />
 
           <p className="m-0 mt-3 text-xs text-muted">
             Saved as a draft. Students see nothing until you publish it.
@@ -286,6 +379,22 @@ export function ResultsManager() {
             <code className="text-[12px]">marks_max</code>,{' '}
             <code className="text-[12px]">sgpa</code>,{' '}
             <code className="text-[12px]">status</code>.
+          </p>
+          <p className="m-0 mb-3 text-[13px] text-muted">
+            <strong className="font-semibold text-jnu-800">For subject-wise marks</strong>, add{' '}
+            <code className="text-[12px]">subject_code</code>,{' '}
+            <code className="text-[12px]">subject_name</code>,{' '}
+            <code className="text-[12px]">subject_max</code>,{' '}
+            <code className="text-[12px]">subject_theory</code>,{' '}
+            <code className="text-[12px]">subject_practical</code>,{' '}
+            <code className="text-[12px]">subject_obtained</code>,{' '}
+            <code className="text-[12px]">subject_grade</code> and give each paper{' '}
+            <strong className="font-semibold text-jnu-800">its own row</strong>, repeating the
+            student&rsquo;s columns. Rows are grouped by roll number, semester and session. Fill
+            theory and practical and the paper&rsquo;s total is their sum; leave both empty and{' '}
+            <code className="text-[12px]">subject_obtained</code> is used instead. Grand totals are
+            added up from the subjects, so <code className="text-[12px]">marks_obtained</code> and{' '}
+            <code className="text-[12px]">marks_max</code> can be left out.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input
@@ -429,12 +538,20 @@ function EditResultModal({
     marks_max: String(row.marks_max),
     sgpa: String(row.sgpa),
   })
+  const [subjects, setSubjects] = useState<SubjectDraft[]>(() => (row.subjects ?? []).map(fromSubject))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const totals = subjects.length > 0 ? subjectTotals(subjects) : null
 
   async function save() {
     if (!form.student_name.trim()) {
       setError('Student name is required.')
+      return
+    }
+    const problem = subjectProblem(subjects)
+    if (problem) {
+      setError(problem)
       return
     }
     setBusy(true)
@@ -444,9 +561,9 @@ function EditResultModal({
       programme: form.programme,
       semester: form.semester,
       exam_session: form.exam_session,
-      subjects: row.subjects,
-      marks_obtained: Number(form.marks_obtained) || 0,
-      marks_max: Number(form.marks_max) || 0,
+      subjects: subjects.map(toSubject),
+      marks_obtained: totals ? totals.obtained : Number(form.marks_obtained) || 0,
+      marks_max: totals ? totals.max : Number(form.marks_max) || 0,
       sgpa: Number(form.sgpa) || 0,
       status: form.status,
       published_at: row.published_at,
@@ -474,10 +591,12 @@ function EditResultModal({
         <Select id="edit_semester" label="Semester" value={form.semester} onChange={(v) => setForm({ ...form, semester: v })} options={SEMESTERS} />
         <Text id="edit_exam_session" label="Exam Session" value={form.exam_session} onChange={(v) => setForm({ ...form, exam_session: v })} />
         <Select id="edit_status" label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as ResultRecord['status'] })} options={['PASS', 'FAIL', 'ATKT', 'WITHHELD']} />
-        <Text id="edit_marks_obtained" label="Marks Obtained" value={form.marks_obtained} onChange={(v) => setForm({ ...form, marks_obtained: v })} />
-        <Text id="edit_marks_max" label="Maximum Marks" value={form.marks_max} onChange={(v) => setForm({ ...form, marks_max: v })} />
+        <Text id="edit_marks_obtained" label="Marks Obtained" value={totals ? String(totals.obtained) : form.marks_obtained} onChange={(v) => setForm({ ...form, marks_obtained: v })} readOnly={!!totals} hint={totals ? 'Added up from the subjects below.' : undefined} />
+        <Text id="edit_marks_max" label="Maximum Marks" value={totals ? String(totals.max) : form.marks_max} onChange={(v) => setForm({ ...form, marks_max: v })} readOnly={!!totals} hint={totals ? 'Added up from the subjects below.' : undefined} />
         <Text id="edit_sgpa" label="SGPA" value={form.sgpa} onChange={(v) => setForm({ ...form, sgpa: v })} />
       </div>
+
+      <SubjectEditor idPrefix="edit" value={subjects} onChange={setSubjects} />
 
       <p className="m-0 mt-3 text-xs text-muted">
         Roll number cannot be changed here. Obtained marks may not exceed the maximum.
@@ -490,9 +609,10 @@ function EditResultModal({
 }
 
 function Text({
-  id, label, value, onChange, placeholder,
+  id, label, value, onChange, placeholder, readOnly, hint,
 }: {
-  id: string; label: string; value: string; onChange: (v: string) => void; placeholder?: string
+  id: string; label: string; value: string; onChange: (v: string) => void
+  placeholder?: string; readOnly?: boolean; hint?: string
 }) {
   return (
     <div>
@@ -501,10 +621,169 @@ function Text({
         id={id}
         value={value}
         placeholder={placeholder}
+        readOnly={readOnly}
+        // readOnly rather than disabled: a disabled box is skipped by the tab
+        // order and read out as unavailable, when the value is in fact the
+        // point — it is the figure that will be filed.
+        aria-describedby={hint ? `${id}-hint` : undefined}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border border-hair px-2.5 py-1.5 text-[13px] focus:border-jnu-400"
+        className={`w-full rounded border border-hair px-2.5 py-1.5 text-[13px] focus:border-jnu-400 ${
+          readOnly ? 'bg-shell text-muted' : ''
+        }`}
       />
+      {hint ? <p id={`${id}-hint`} className="m-0 mt-1 text-[11px] text-muted">{hint}</p> : null}
     </div>
+  )
+}
+
+/**
+ * The subject-wise marks for one result.
+ *
+ * Nothing here is required: a result with no subject rows files exactly as it
+ * did before this existed, with a total and no breakdown, and its marksheet
+ * prints the totals row alone. Adding rows switches the grand total over to
+ * the sum of them.
+ *
+ * Theory and Practical are optional per row. Fill either and the row's Total
+ * becomes their sum and stops being typed — the server requires theory +
+ * practical to equal the total exactly, so there is no version of this where
+ * typing all three helps. Leave both empty and the row keeps a single total,
+ * which is how a paper with no practical component is filed; the marksheet
+ * then prints that total under Theory and an em dash under Practical.
+ */
+function SubjectEditor({
+  idPrefix, value, onChange,
+}: {
+  idPrefix: string
+  value: SubjectDraft[]
+  onChange: (next: SubjectDraft[]) => void
+}) {
+  const set = (i: number, patch: Partial<SubjectDraft>) =>
+    onChange(value.map((d, j) => (j === i ? { ...d, ...patch } : d)))
+
+  const totals = subjectTotals(value)
+
+  return (
+    <fieldset className="mt-4 rounded border border-hair p-3">
+      <legend className="px-1 text-[12px] font-semibold text-jnu-800">
+        Subject-wise marks <span className="font-normal text-muted">— optional</span>
+      </legend>
+
+      {value.length === 0 ? (
+        <p className="m-0 mb-3 text-[12px] text-muted">
+          No subjects. The marksheet will show the grand total only. Add a row to print a
+          subject table with theory and practical columns.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[12px]">
+            <thead>
+              <tr>
+                <th className="border-b border-hair px-1.5 py-1 text-left font-semibold">#</th>
+                <th className="border-b border-hair px-1.5 py-1 text-left font-semibold">Code</th>
+                <th className="border-b border-hair px-1.5 py-1 text-left font-semibold">Subject</th>
+                <th className="border-b border-hair px-1.5 py-1 text-right font-semibold">Max</th>
+                <th className="border-b border-hair px-1.5 py-1 text-right font-semibold">Theory</th>
+                <th className="border-b border-hair px-1.5 py-1 text-right font-semibold">Practical</th>
+                <th className="border-b border-hair px-1.5 py-1 text-right font-semibold">Total</th>
+                <th className="border-b border-hair px-1.5 py-1 text-left font-semibold">Grade</th>
+                <th className="border-b border-hair px-1.5 py-1" />
+              </tr>
+            </thead>
+            <tbody>
+              {value.map((d, i) => {
+                const split = hasSplit(d)
+                const obtained = subjectObtained(d)
+                const max = Number(d.max) || 0
+                const over = max > 0 && obtained > max
+                return (
+                  <tr key={i}>
+                    <td className="tnum border-b border-hair px-1.5 py-1 text-muted">{i + 1}.</td>
+                    <td className="border-b border-hair px-1.5 py-1">
+                      <Cell id={`${idPrefix}_code_${i}`} label={`Subject code, row ${i + 1}`} value={d.code} onChange={(v) => set(i, { code: v })} width="w-24" placeholder="BT-401" />
+                    </td>
+                    <td className="border-b border-hair px-1.5 py-1">
+                      <Cell id={`${idPrefix}_name_${i}`} label={`Subject name, row ${i + 1}`} value={d.name} onChange={(v) => set(i, { name: v })} width="w-full min-w-[9rem]" placeholder="Data Structures" />
+                    </td>
+                    <td className="border-b border-hair px-1.5 py-1">
+                      <Cell id={`${idPrefix}_max_${i}`} label={`Maximum marks, row ${i + 1}`} value={d.max} onChange={(v) => set(i, { max: v })} width="w-16" numeric />
+                    </td>
+                    <td className="border-b border-hair px-1.5 py-1">
+                      <Cell id={`${idPrefix}_theory_${i}`} label={`Theory marks, row ${i + 1}`} value={d.theory} onChange={(v) => set(i, { theory: v })} width="w-16" numeric />
+                    </td>
+                    <td className="border-b border-hair px-1.5 py-1">
+                      <Cell id={`${idPrefix}_practical_${i}`} label={`Practical marks, row ${i + 1}`} value={d.practical} onChange={(v) => set(i, { practical: v })} width="w-16" numeric />
+                    </td>
+                    <td className="border-b border-hair px-1.5 py-1">
+                      {split ? (
+                        <span className={`tnum block w-16 px-1 py-1 text-right ${over ? 'font-semibold text-[#a8322b]' : 'text-muted'}`}>
+                          {obtained}
+                        </span>
+                      ) : (
+                        <Cell id={`${idPrefix}_obtained_${i}`} label={`Total marks, row ${i + 1}`} value={d.obtained} onChange={(v) => set(i, { obtained: v })} width="w-16" numeric invalid={over} />
+                      )}
+                    </td>
+                    <td className="border-b border-hair px-1.5 py-1">
+                      <Cell id={`${idPrefix}_grade_${i}`} label={`Grade, row ${i + 1}`} value={d.grade} onChange={(v) => set(i, { grade: v })} width="w-14" placeholder="A" />
+                    </td>
+                    <td className="whitespace-nowrap border-b border-hair px-1.5 py-1 text-right">
+                      <button type="button" onClick={() => onChange(move(value, i, i - 1))} disabled={i === 0} className="mr-1 px-1 text-jnu-600 disabled:opacity-30" aria-label={`Move row ${i + 1} up`}>↑</button>
+                      <button type="button" onClick={() => onChange(move(value, i, i + 1))} disabled={i === value.length - 1} className="mr-1 px-1 text-jnu-600 disabled:opacity-30" aria-label={`Move row ${i + 1} down`}>↓</button>
+                      <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} className="px-1 text-[#a8322b]" aria-label={`Remove row ${i + 1}`}>×</button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3} className="px-1.5 py-1.5 text-right font-semibold">Grand total</td>
+                <td className="tnum px-1.5 py-1.5 text-right font-semibold">{totals.max}</td>
+                <td colSpan={2} />
+                <td className="tnum px-1.5 py-1.5 text-right font-semibold">{totals.obtained}</td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={() => onChange([...value, emptySubject()])}
+        className="btn btn-secondary mt-3"
+      >
+        Add subject
+      </button>
+    </fieldset>
+  )
+}
+
+/** One box inside the subject table. Labelled for screen readers only. */
+function Cell({
+  id, label, value, onChange, width, placeholder, numeric, invalid,
+}: {
+  id: string; label: string; value: string; onChange: (v: string) => void
+  width: string; placeholder?: string; numeric?: boolean; invalid?: boolean
+}) {
+  return (
+    <>
+      <label htmlFor={id} className="sr-only">{label}</label>
+      <input
+        id={id}
+        value={value}
+        placeholder={placeholder}
+        // inputMode rather than type="number": a number input in Chrome
+        // silently discards the value on a stray scroll wheel, and this is a
+        // grid people tab through at speed with a mark sheet beside them.
+        inputMode={numeric ? 'numeric' : undefined}
+        onChange={(e) => onChange(e.target.value)}
+        aria-invalid={invalid || undefined}
+        className={`${width} ${numeric ? 'tnum text-right' : ''} rounded border px-1.5 py-1 text-[12px] focus:border-jnu-400 ${
+          invalid ? 'border-[#a8322b] bg-[#a8322b]/5' : 'border-hair'
+        }`}
+      />
+    </>
   )
 }
 
