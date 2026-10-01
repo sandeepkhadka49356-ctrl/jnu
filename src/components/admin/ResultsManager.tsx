@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { getJson, move } from '@/lib/admin-client'
 import { Modal } from './ui'
+import { StudentPicker } from './StudentPicker'
 import {
   listResults,
   addResult,
@@ -87,7 +88,7 @@ export function ResultsManager() {
     setMsg(null)
 
     if (!form.roll_no.trim() || !form.student_name.trim()) {
-      setMsg({ tone: 'err', text: 'Roll number and student name are required.' })
+      setMsg({ tone: 'err', text: 'Choose a student from the register first.' })
       return
     }
 
@@ -340,8 +341,23 @@ export function ResultsManager() {
         <h2 className="panel-head m-0">Add a Result</h2>
         <div className="panel-body">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <Text id="roll_no" label="Roll Number" value={form.roll_no} onChange={(v) => setForm({ ...form, roll_no: v })} placeholder="JNU2024BT0190" />
-            <Text id="student_name" label="Student Name" value={form.student_name} onChange={(v) => setForm({ ...form, student_name: v })} />
+            <StudentPicker
+              id="roll_no"
+              label="Student"
+              value={form.roll_no}
+              onPick={(s) =>
+                setForm({
+                  ...form,
+                  roll_no: s?.rollNo ?? '',
+                  // The register is the authority on both. Typing them again
+                  // here is how a result ends up under a slightly different
+                  // spelling of the same person's name.
+                  student_name: s?.fullName ?? '',
+                  programme: s?.programme || form.programme,
+                })
+              }
+            />
+            <Text id="student_name" label="Student Name" value={form.student_name} onChange={(v) => setForm({ ...form, student_name: v })} readOnly={!!form.roll_no} hint={form.roll_no ? 'From the student register.' : undefined} />
 
             <Select id="programme" label="Programme" value={form.programme} onChange={(v) => setForm({ ...form, programme: v })} options={programmeNames} />
             <Select id="semester" label="Semester" value={form.semester} onChange={(v) => setForm({ ...form, semester: v })} options={SEMESTERS} />
@@ -395,6 +411,12 @@ export function ResultsManager() {
             <code className="text-[12px]">subject_obtained</code> is used instead. Grand totals are
             added up from the subjects, so <code className="text-[12px]">marks_obtained</code> and{' '}
             <code className="text-[12px]">marks_max</code> can be left out.
+          </p>
+          <p className="m-0 mb-3 text-[13px] text-muted">
+            Every roll number must already exist under{' '}
+            <strong className="font-semibold text-jnu-800">Students</strong>. The import names any
+            that do not and files nothing, because a result with no student record is never visible
+            to the student.
           </p>
           <div className="flex flex-wrap items-center gap-3">
             <input

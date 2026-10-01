@@ -83,6 +83,41 @@ export async function POST(req: Request) {
       })
     }
 
+    /*
+     * Every roll number must already be in the student register.
+     *
+     * Not a formality. /api/results/lookup requires BOTH a Student row and a
+     * published Result before it will show anything, and returns the same
+     * "no published result was found" either way so the endpoint cannot be
+     * used to discover which roll numbers exist. So a result filed against a
+     * roll number with no student is invisible to the student, indefinitely,
+     * and the only symptom is a candidate being told their result does not
+     * exist — days after the exam cell watched it save and publish without
+     * complaint. Catching it here, at the write, is the only point where the
+     * person who can fix it is still looking.
+     *
+     * One query for the whole import, not one per row.
+     */
+    const rolls = [...new Set(data.map((d) => d.rollNo))]
+    const known = new Set(
+      (await db.student.findMany({ where: { rollNo: { in: rolls } }, select: { rollNo: true } }))
+        .map((s) => s.rollNo)
+    )
+    const unknown = rolls.filter((r) => !known.has(r))
+
+    if (unknown.length > 0) {
+      const shown = unknown.slice(0, 5).join(', ')
+      const rest = unknown.length > 5 ? ` and ${unknown.length - 5} more` : ''
+      return fail(
+        unknown.length === 1
+          ? `No student is registered with roll number ${shown}. Add the student under Students first — ` +
+            `a result on its own is never visible, because the results page matches it to a student record.`
+          : `${unknown.length} roll numbers are not in the student register: ${shown}${rest}. ` +
+            `Add those students under Students first — a result on its own is never visible, because ` +
+            `the results page matches it to a student record.`
+      )
+    }
+
     // SQLite does not support createMany({ skipDuplicates }), so rows are
     // inserted individually and a duplicate is skipped rather than failing the
     // whole import — a half-loaded semester is more useful than none.
