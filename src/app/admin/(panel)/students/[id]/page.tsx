@@ -184,6 +184,16 @@ export default function StudentDetail() {
                 </Link>
               </p>
             ) : null}
+
+            <PhotoUpload
+              studentId={id}
+              hasPhoto={Boolean(s.photoUrl)}
+              onDone={async (text) => {
+                show({ tone: 'ok', text })
+                await load()
+              }}
+              onError={(text) => show({ tone: 'error', text })}
+            />
           </Card>
 
           <Card title="Sign-in">
@@ -242,6 +252,89 @@ export default function StudentDetail() {
           }}
           onError={(t) => show({ tone: 'error', text: t })}
         />
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Staff upload of a student's photograph.
+ *
+ * Writes the live photo directly rather than queueing one for approval: a
+ * registrar uploading from the admission file IS the approval, and sending it
+ * to a queue would mean approving one's own upload.
+ *
+ * The file input is replaced after every attempt (the `key`), because a
+ * browser will not re-fire change for the same file twice — so a failed
+ * upload could not be retried by picking the same file again, which is
+ * exactly what someone does first.
+ */
+function PhotoUpload({
+  studentId,
+  hasPhoto,
+  onDone,
+  onError,
+}: {
+  studentId: string
+  hasPhoto: boolean
+  onDone: (text: string) => void | Promise<void>
+  onError: (text: string) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [nonce, setNonce] = useState(0)
+
+  async function upload(file: File) {
+    setBusy(true)
+    const body = new FormData()
+    body.append('photo', file)
+    const res = await api(`/api/admin/photos/${studentId}`, { method: 'PUT', body })
+    setBusy(false)
+    setNonce((n) => n + 1)
+    if (!res.ok) {
+      onError(res.error)
+      return
+    }
+    await onDone('Photograph saved.')
+  }
+
+  async function remove() {
+    if (!window.confirm('Remove this photograph? It will disappear from the results page.')) return
+    setBusy(true)
+    const res = await del(`/api/admin/photos/${studentId}`)
+    setBusy(false)
+    if (!res.ok) {
+      onError(res.error)
+      return
+    }
+    await onDone('Photograph removed.')
+  }
+
+  return (
+    <div className="mt-3 border-t border-hair pt-3">
+      <label htmlFor="student-photo" className="mb-1 block text-[12px] font-semibold text-jnu-800">
+        {hasPhoto ? 'Replace photograph' : 'Upload photograph'}
+      </label>
+      <input
+        key={nonce}
+        id="student-photo"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        disabled={busy}
+        className="w-full text-[12px]"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) void upload(file)
+        }}
+      />
+      <p className="m-0 mt-1 text-[11px] text-muted">
+        JPEG, PNG or WebP. Shown on the student&rsquo;s results page, so use the admission
+        photograph rather than a snapshot.
+      </p>
+      {busy ? <p className="m-0 mt-2 text-[12px] text-muted">Uploading…</p> : null}
+      {hasPhoto && !busy ? (
+        <button type="button" onClick={remove} className="mt-2 text-[12px] text-[#a8322b] underline">
+          Remove photograph
+        </button>
       ) : null}
     </div>
   )
