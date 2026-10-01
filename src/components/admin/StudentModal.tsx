@@ -89,13 +89,26 @@ export function StudentModal({
     )
   }
 
+  /*
+   * Save errors are shown INSIDE the dialog.
+   *
+   * They used to go to the page's status line, which sits behind the modal
+   * and its scrim — so a rejected save looked like nothing happening at all,
+   * and the reason was sitting unread underneath. A message about this form
+   * belongs on this form. onError is still called for the caller's own
+   * purposes, but it is no longer the only place the message appears.
+   */
+  const [error, setError] = useState<string | null>(null)
+
   async function save() {
     setBusy(true)
+    setError(null)
     const res = id
       ? await putJson(`/api/admin/students/${id}`, form)
       : await postJson('/api/admin/students', form)
     setBusy(false)
     if (!res.ok) {
+      setError(res.error)
       onError(res.error)
       return
     }
@@ -105,31 +118,89 @@ export function StudentModal({
   return (
     <Modal title={id ? 'Edit student' : 'Add student'} onClose={onClose} wide>
       <div className="space-y-4">
+        {error ? (
+          <p
+            role="alert"
+            className="m-0 rounded border border-[#a8322b]/40 bg-[#a8322b]/5 px-3 py-2 text-[13px] text-[#a8322b]"
+          >
+            {error}
+          </p>
+        ) : null}
+
+        {/*
+          Programme lives in this panel rather than further down the form,
+          because the roll number is derived from it. With it in its old place
+          the dialog asked for a button to be pressed before the field it
+          depends on had even been seen, and answered with "choose a programme
+          first" while one was plainly selected further down.
+        */}
         {!id ? (
           <div className="rounded border border-hair bg-shell px-3 py-2">
+            <p className="m-0 mb-2 text-[12px] font-semibold text-jnu-800">
+              1. Programme and year, then generate the numbers
+            </p>
             <div className="flex flex-wrap items-end gap-3">
+              <Field label="Programme" required>
+                {programmes.length > 0 ? (
+                  <Select
+                    value={form.programme}
+                    options={[
+                      { value: '', label: 'Choose a programme…' },
+                      ...programmes.map((p) => ({ value: p, label: p })),
+                    ]}
+                    onChange={(e) => {
+                      setNumberNote(null)
+                      setForm({ ...form, programme: e.target.value })
+                    }}
+                    className="min-w-[260px]"
+                  />
+                ) : (
+                  <Input
+                    value={form.programme}
+                    onChange={(e) => {
+                      setNumberNote(null)
+                      setForm({ ...form, programme: e.target.value })
+                    }}
+                  />
+                )}
+              </Field>
               <Field label="Admission year">
                 <Input
                   value={year}
                   inputMode="numeric"
-                  onChange={(e) => setYear(e.target.value)}
+                  onChange={(e) => {
+                    setNumberNote(null)
+                    setYear(e.target.value)
+                  }}
                   className="w-24"
                 />
               </Field>
-              <Button variant="secondary" onClick={generate} disabled={numbering}>
+              <Button
+                variant="secondary"
+                onClick={generate}
+                // Disabled until there is a programme to derive a code from,
+                // so the button cannot be pressed into an error it could have
+                // prevented.
+                disabled={numbering || !form.programme}
+              >
                 {numbering ? 'Checking…' : 'Generate numbers'}
               </Button>
-              <p className="m-0 text-[12px] text-muted">
-                Fills both boxes below from the programme and year — JNU2024BT0190. Both stay
-                editable.
-              </p>
             </div>
+            <p className="m-0 mt-2 text-[12px] text-muted">
+              Fills the roll and enrollment numbers below — JNU2026BBA0001 and JNU/2026/BBA/0001 —
+              taking the next free serial for that programme and year. Both stay editable, and you
+              can skip this and type your own.
+            </p>
             {numberNote ? (
-              <p role="status" className="m-0 mt-2 text-[12px] text-jnu-700">
+              <p role="status" className="m-0 mt-2 text-[12px] font-semibold text-jnu-700">
                 {numberNote}
               </p>
             ) : null}
           </div>
+        ) : null}
+
+        {!id ? (
+          <p className="m-0 text-[12px] font-semibold text-jnu-800">2. The student&rsquo;s details</p>
         ) : null}
 
         <Row cols={3}>
@@ -151,22 +222,14 @@ export function StudentModal({
           <Field label="Mother's name" required>
             <Input value={form.motherName} onChange={(e) => setForm({ ...form, motherName: e.target.value })} />
           </Field>
-          <Field label="Programme" required>
-            {/* A list for new students, because the numbering reads the
-                programme's award to work out its code and a typo would mean
-                no code at all. Existing students keep a free-text box: their
-                programme may predate the current catalogue, and silently
-                blanking it on an unrelated edit would be worse than a typo. */}
-            {!id && programmes.length > 0 ? (
-              <Select
-                value={form.programme}
-                options={[{ value: '', label: 'Choose…' }, ...programmes.map((p) => ({ value: p, label: p }))]}
-                onChange={(e) => setForm({ ...form, programme: e.target.value })}
-              />
-            ) : (
+          {id ? (
+            <Field label="Programme" required>
+              {/* Free text when editing: an existing student's programme may
+                  predate the current catalogue, and silently blanking it on
+                  an unrelated edit would be worse than a typo. */}
               <Input value={form.programme} onChange={(e) => setForm({ ...form, programme: e.target.value })} />
-            )}
-          </Field>
+            </Field>
+          ) : null}
           <Field label="Status">
             <Select
               value={form.status}
