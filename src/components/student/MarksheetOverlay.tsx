@@ -23,10 +23,13 @@ import { MarksheetDocument } from './MarksheetDocument'
 export function MarksheetOverlay({
   row,
   profile,
+  all = [],
   onClose,
 }: {
   row: ResultRecord
   profile: StudentProfile
+  /** Every published result, so the printed sheet can carry running totals. */
+  all?: ResultRecord[]
   onClose: () => void
 }) {
   const [mounted, setMounted] = useState(false)
@@ -88,7 +91,7 @@ export function MarksheetOverlay({
       {/* Wide sheet on a narrow screen: scroll sideways inside this box rather
           than shrinking the type below legibility. */}
       <div className="sheet-scroll overflow-x-auto">
-        <MarksheetDocument row={row} profile={profile} />
+        <MarksheetDocument row={row} profile={profile} all={all} />
       </div>
 
       <p className="no-print mx-auto mt-3 max-w-[210mm] text-center text-[12px] text-jnu-100">

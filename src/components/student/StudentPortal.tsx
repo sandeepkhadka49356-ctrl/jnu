@@ -11,6 +11,7 @@ import {
   type StudentProfile,
 } from '@/lib/store'
 import { formatNoticeDate } from '@/lib/content-types'
+import { bandFor, cumulative } from '@/lib/grading'
 import {
   announceStudentSessionChanged,
   onStudentSessionChanged,
@@ -98,11 +99,11 @@ export function StudentPortal() {
         </p>
       ) : (
         results.map((r) => (
-          <Marksheet key={r.id} row={r} profile={profile} onDownload={() => setSheet(r)} />
+          <Marksheet key={r.id} row={r} profile={profile} all={results} onDownload={() => setSheet(r)} />
         ))
       )}
 
-      {sheet ? <MarksheetOverlay row={sheet} profile={profile} onClose={closeSheet} /> : null}
+      {sheet ? <MarksheetOverlay row={sheet} profile={profile} all={results} onClose={closeSheet} /> : null}
     </div>
   )
 }
@@ -202,14 +203,30 @@ function SignInForm({
 export function Marksheet({
   row,
   profile,
+  all,
   onDownload,
 }: {
   row: ResultRecord
   profile: StudentProfile
+  /**
+   * Every published result for this student, used for the running totals.
+   * Already in hand at both call sites — the portal and the public lookup
+   * both fetch the whole set — so this costs no extra request.
+   */
+  all: ResultRecord[]
   onDownload: () => void
 }) {
   const subjects = Array.isArray(row.subjects) ? row.subjects : []
   const pct = row.marks_max > 0 ? (row.marks_obtained / row.marks_max) * 100 : 0
+
+  const cum = cumulative(
+    { semester: row.semester, marksObtained: row.marks_obtained, marksMax: row.marks_max },
+    all.map((r) => ({ semester: r.semester, marksObtained: r.marks_obtained, marksMax: r.marks_max }))
+  )
+  // The overall grade is taken from the running total, not this semester
+  // alone: a grade printed beside a grand total has to describe that total.
+  const overallPct = cum.grandMax > 0 ? (cum.grandObtained / cum.grandMax) * 100 : 0
+  const overall = bandFor(overallPct)
 
   return (
     <article className="panel mb-5">
@@ -234,7 +251,8 @@ export function Marksheet({
         {/* The marksheet repeats the identifying details so a printed copy
             stands on its own — a page printed from here should be readable
             without the screen above it. */}
-        <dl className="m-0 mb-4 grid gap-x-6 gap-y-2 text-[13.5px] sm:grid-cols-2">
+        <div className="mb-4 flex flex-wrap items-start gap-5">
+        <dl className="m-0 grid flex-1 gap-x-6 gap-y-2 text-[13.5px] sm:grid-cols-2">
           <Row label="Roll Number" value={row.roll_no} mono bold />
           <Row label="Enrollment No." value={profile.enrollmentNo} mono bold />
           <Row label="Candidate Name" value={row.student_name} bold />
@@ -245,7 +263,39 @@ export function Marksheet({
           <Row label="SGPA" value={row.sgpa.toFixed(2)} mono />
           <Row label="Marks" value={`${row.marks_obtained} / ${row.marks_max}`} mono />
           <Row label="Percentage" value={`${pct.toFixed(2)}%`} mono />
+
+          {/* Running totals, shown only once there is a previous semester to
+              run from. On a first semester they would just repeat the two
+              rows above with different labels. */}
+          {cum.previousCount > 0 ? (
+            <>
+              <Row
+                label="Previous Sem. Total"
+                value={`${cum.previousObtained} / ${cum.previousMax}`}
+                mono
+              />
+              <Row
+                label="Grand Total"
+                value={`${cum.grandObtained} / ${cum.grandMax}`}
+                mono
+                bold
+              />
+            </>
+          ) : null}
+          <Row label="Overall Grade" value={`${overall.letter} — ${overall.description}`} bold />
         </dl>
+
+        {/* eslint-disable-next-line @next/next/no-img-element --
+            the photo is served from an authenticated route, not /public, so
+            next/image cannot optimise it and would only proxy it again. */}
+        {profile.photoUrl ? (
+          <img
+            src={profile.photoUrl}
+            alt={`Photograph of ${row.student_name}`}
+            className="h-[120px] w-[95px] shrink-0 rounded-sm border border-hair object-cover"
+          />
+        ) : null}
+        </div>
 
         {subjects.length > 0 ? (
           <div className="overflow-x-auto">

@@ -21,12 +21,20 @@ export const dynamic = 'force-dynamic'
  *   stated; it is not an oversight. /api/student/me still exists and is still
  *   session-scoped — it is what serves the photograph and contact details.
  *
- * What is withheld here, because none of it is needed to read a result and
+ * The photograph IS included, at the client's instruction, so this page
+ * matches the official marksheet. It was withheld at first on the reasoning
+ * that a name and marks is a disclosure while a face is an identification;
+ * the university weighed that against a result page that looks like the
+ * document it represents and chose the photograph. Recorded here so the
+ * trade-off is visible rather than looking like an oversight.
+ *
+ * What is still withheld, because none of it is needed to read a result and
  * all of it makes the disclosure worse:
  *
- *   - the photograph, which turns a record into an identification
  *   - contact details: mobile, email, address, district, state, pincode
  *   - unpublished results, and anything about the student's account state
+ *   - the UNAPPROVED photograph a student has uploaded but staff have not
+ *     reviewed, which must never appear beside official marks
  *
  * The rate limit does not make the data private — someone patient still gets
  * it. It exists so the register cannot be scraped in a single pass, which is
@@ -67,6 +75,7 @@ export async function POST(req: Request) {
         motherName: true,
         dob: true,
         programme: true,
+        photoId: true,
       },
     })
 
@@ -90,7 +99,7 @@ export async function POST(req: Request) {
       // than absent, so the shared marksheet card renders unchanged.
       student: {
         ...student,
-        photoUrl: null,
+        photoUrl: student.photoId ? `/api/results/photo/${student.photoId}/` : null,
         pendingPhotoUrl: null,
         pendingPhotoAt: null,
         status: 'ACTIVE',

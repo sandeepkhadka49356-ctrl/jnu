@@ -12,6 +12,7 @@ import {
   sheetDate,
 } from '@/lib/marksheet'
 import type { ResultRecord, StudentProfile } from '@/lib/store'
+import { bandFor, cumulative } from '@/lib/grading'
 import { cinzel, garamond } from './marksheet-fonts'
 
 /**
@@ -39,10 +40,13 @@ import { cinzel, garamond } from './marksheet-fonts'
 export function MarksheetDocument({
   row,
   profile,
+  all = [],
   signatureUrl = null,
 }: {
   row: ResultRecord
   profile: StudentProfile
+  /** Every published result, for the running totals. Empty = this one alone. */
+  all?: ResultRecord[]
   /**
    * The Controller's scanned signature, if the examination cell has set one.
    * Passed in from /api/student/me rather than read from site settings, so
@@ -76,6 +80,13 @@ export function MarksheetDocument({
   }, [verifyUrl])
 
   const subjects = Array.isArray(row.subjects) ? row.subjects : []
+  const cum = cumulative(
+    { semester: row.semester, marksObtained: row.marks_obtained, marksMax: row.marks_max },
+    all.map((r) => ({ semester: r.semester, marksObtained: r.marks_obtained, marksMax: r.marks_max }))
+  )
+  // Taken from the running total, because a grade printed beside a grand
+  // total has to describe that total and not just the semester above it.
+  const overall = bandFor(cum.grandMax > 0 ? (cum.grandObtained / cum.grandMax) * 100 : 0)
   const pct = percentageOf(row.marks_obtained, row.marks_max)
   const division = divisionFor(row.status, pct)
   const host = SITE_HOST.replace(/\/$/, '')
@@ -204,13 +215,38 @@ export function MarksheetDocument({
             <tfoot>
               <tr>
                 <td colSpan={3} className={`ms-total-label ${cinzel.className}`}>
-                  Grand Total &amp; Result
+                  {cum.previousCount > 0 ? 'This Semester' : 'Grand Total & Result'}
                 </td>
                 <td className="ms-c ms-strong">{row.marks_max}</td>
                 <td className="ms-c">—</td>
                 <td className="ms-c">—</td>
                 <td className="ms-c ms-strong">{row.marks_obtained}</td>
               </tr>
+
+              {/* Only once there is something to carry forward. On a first
+                  semester these two rows would repeat the one above. */}
+              {cum.previousCount > 0 ? (
+                <>
+                  <tr>
+                    <td colSpan={3} className={`ms-total-label ${cinzel.className}`}>
+                      Previous Year/Sem. Total
+                    </td>
+                    <td className="ms-c">{cum.previousMax}</td>
+                    <td className="ms-c">—</td>
+                    <td className="ms-c">—</td>
+                    <td className="ms-c">{cum.previousObtained}</td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className={`ms-total-label ${cinzel.className}`}>
+                      Grand Total &amp; Result
+                    </td>
+                    <td className="ms-c ms-strong">{cum.grandMax}</td>
+                    <td className="ms-c">—</td>
+                    <td className="ms-c">—</td>
+                    <td className="ms-c ms-strong">{cum.grandObtained}</td>
+                  </tr>
+                </>
+              ) : null}
             </tfoot>
           </table>
 
@@ -228,7 +264,14 @@ export function MarksheetDocument({
             </span>
             <span className="ms-sep">|</span>
             <span>
-              Grade: <b className="ms-upper">{division}</b>
+              Division: <b className="ms-upper">{division}</b>
+            </span>
+            <span className="ms-sep">|</span>
+            {/* Was labelled "Grade" while showing the division, which are two
+                different schemes that do not share boundaries. Both are named
+                now, and the letter is the one the grade bands give. */}
+            <span>
+              Grade: <b className="ms-upper">{overall.letter}</b>
             </span>
           </p>
 

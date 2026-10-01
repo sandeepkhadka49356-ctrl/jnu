@@ -25,7 +25,7 @@ export const emptySubject = (): SubjectDraft => ({
 })
 
 /** Is this row using the theory/practical split, or a single total? */
-export const hasSplit = (d: SubjectDraft) => d.theory.trim() !== '' || d.practical.trim() !== ''
+export const hasSplit = (d: SubjectDraft) => (d.theory ?? '').trim() !== '' || (d.practical ?? '').trim() !== ''
 
 /**
  * What the row scores. With the split in use this is theory + practical and
@@ -49,7 +49,10 @@ export function toSubject(d: SubjectDraft): Subject {
     // total in the Theory column and an em dash under Practical, which is how
     // a paper with no practical component is meant to read.
     ...(hasSplit(d) ? { theory: Number(d.theory) || 0, practical: Number(d.practical) || 0 } : {}),
-    ...(d.credits.trim() !== '' ? { credits: Number(d.credits) || 0 } : {}),
+    // ?? '' because the draft shape has gained a field once already:
+    // anything built before credits existed has no such key, and a crash
+    // here would take the whole results screen down.
+    ...((d.credits ?? '').trim() !== '' ? { credits: Number(d.credits) || 0 } : {}),
   }
 }
 
@@ -106,7 +109,7 @@ export function subjectProblem(list: SubjectDraft[]): string | null {
  */
 export function gradeFor(d: SubjectDraft): string {
   const max = Number(d.max) || 0
-  if (max <= 0) return d.grade.trim()
+  if (max <= 0) return (d.grade ?? '').trim()
   return bandForMarks(subjectObtained(d), max).letter
 }
 
@@ -121,7 +124,7 @@ export function sgpaFor(list: SubjectDraft[]): number | null {
     list.map((d) => ({
       max: Number(d.max) || 0,
       obtained: subjectObtained(d),
-      credits: d.credits.trim() === '' ? undefined : Number(d.credits) || 0,
+      credits: (d.credits ?? '').trim() === '' ? undefined : Number(d.credits) || 0,
     }))
   )
 }

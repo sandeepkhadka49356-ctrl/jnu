@@ -89,6 +89,7 @@ export function ResultLookup() {
               key={r.id}
               row={r}
               profile={found.student}
+              all={found.results}
               onDownload={() => setSheet(r)}
             />
           ))}
@@ -96,7 +97,7 @@ export function ResultLookup() {
       ) : null}
 
       {sheet && found ? (
-        <MarksheetOverlay row={sheet} profile={found.student} onClose={closeSheet} />
+        <MarksheetOverlay row={sheet} profile={found.student} all={found.results} onClose={closeSheet} />
       ) : null}
     </div>
   )
