@@ -15,11 +15,14 @@ import {
 } from '@/lib/store'
 import type { Subject } from '@/lib/store'
 import {
+  creditTotal,
   emptySubject,
   fromSubject,
   hasSplit,
   subjectObtained,
   subjectProblem,
+  gradeFor,
+  sgpaFor,
   subjectTotals,
   toSubject,
   type SubjectDraft,
@@ -70,6 +73,11 @@ export function ResultsManager() {
   // instead: the server rejects a grand total that disagrees with its own
   // subjects, so letting both be typed only creates a contradiction to report.
   const addTotals = subjects.length > 0 ? subjectTotals(subjects) : null
+
+  // Null when no subject carries a credit — results filed before credits
+  // existed, and rows still being typed. The typed figure stands in that case
+  // rather than being overwritten with a guess.
+  const addSgpa = sgpaFor(subjects)
   const [busy, setBusy] = useState(false)
   const [filter, setFilter] = useState('')
   const [editing, setEditing] = useState<ResultRecord | null>(null)
@@ -108,7 +116,7 @@ export function ResultsManager() {
       subjects: subjects.map(toSubject),
       marks_obtained: addTotals ? addTotals.obtained : Number(form.marks_obtained) || 0,
       marks_max: addTotals ? addTotals.max : Number(form.marks_max) || 0,
-      sgpa: Number(form.sgpa) || 0,
+      sgpa: addSgpa ?? (Number(form.sgpa) || 0),
       status: form.status,
     })
     setBusy(false)
@@ -265,6 +273,7 @@ export function ResultsManager() {
         max: num('subject_max'),
         obtained: split ? theory + practical : num('subject_obtained'),
         grade: get('subject_grade'),
+        ...(get('subject_credits') !== '' ? { credits: num('subject_credits') } : {}),
         ...(split ? { theory, practical } : {}),
       })
     }
@@ -295,10 +304,10 @@ export function ResultsManager() {
     // rather than describing it. Delete the subject_* columns and the last two
     // rows to file totals only.
     const csv = [
-      'roll_no,student_name,programme,semester,exam_session,sgpa,status,subject_code,subject_name,subject_max,subject_theory,subject_practical,subject_obtained,subject_grade',
-      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,7.88,PASS,BT-401,Data Structures,100,62,18,,A',
-      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,7.88,PASS,BT-402,Operating Systems,100,71,,,A',
-      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,7.88,PASS,BT-403,Engineering Mathematics III,100,,,68,B',
+      'roll_no,student_name,programme,semester,exam_session,status,subject_code,subject_name,subject_max,subject_credits,subject_theory,subject_practical,subject_obtained',
+      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,PASS,BT-401,Data Structures,100,4,62,18,',
+      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,PASS,BT-402,Operating Systems,100,4,71,,',
+      'JNU2024BT0190,Example Student,B.Tech Computer Science & Engineering,Semester IV,Even 2025-26,PASS,BT-403,Engineering Mathematics III,100,3,,,68',
     ].join('\n')
 
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
@@ -367,7 +376,7 @@ export function ResultsManager() {
 
             <Text id="marks_obtained" label="Marks Obtained" value={addTotals ? String(addTotals.obtained) : form.marks_obtained} onChange={(v) => setForm({ ...form, marks_obtained: v })} placeholder="412" readOnly={!!addTotals} hint={addTotals ? 'Added up from the subjects below.' : undefined} />
             <Text id="marks_max" label="Maximum Marks" value={addTotals ? String(addTotals.max) : form.marks_max} onChange={(v) => setForm({ ...form, marks_max: v })} placeholder="550" readOnly={!!addTotals} hint={addTotals ? 'Added up from the subjects below.' : undefined} />
-            <Text id="sgpa" label="SGPA" value={form.sgpa} onChange={(v) => setForm({ ...form, sgpa: v })} placeholder="7.88" />
+            <Text id="sgpa" label="SGPA" value={addSgpa === null ? form.sgpa : addSgpa.toFixed(2)} onChange={(v) => setForm({ ...form, sgpa: v })} placeholder="7.88" readOnly={addSgpa !== null} hint={addSgpa === null ? 'Enter credits per subject to calculate this automatically.' : 'Credit-weighted, from the subjects below.'} />
           </div>
 
           <SubjectEditor idPrefix="add" value={subjects} onChange={setSubjects} />
@@ -404,13 +413,15 @@ export function ResultsManager() {
             <code className="text-[12px]">subject_theory</code>,{' '}
             <code className="text-[12px]">subject_practical</code>,{' '}
             <code className="text-[12px]">subject_obtained</code>,{' '}
-            <code className="text-[12px]">subject_grade</code> and give each paper{' '}
+            <code className="text-[12px]">subject_credits</code> and give each paper{' '}
             <strong className="font-semibold text-jnu-800">its own row</strong>, repeating the
             student&rsquo;s columns. Rows are grouped by roll number, semester and session. Fill
             theory and practical and the paper&rsquo;s total is their sum; leave both empty and{' '}
             <code className="text-[12px]">subject_obtained</code> is used instead. Grand totals are
             added up from the subjects, so <code className="text-[12px]">marks_obtained</code> and{' '}
-            <code className="text-[12px]">marks_max</code> can be left out.
+            <code className="text-[12px]">marks_max</code> can be left out, and so can{' '}
+            <code className="text-[12px]">sgpa</code> — it is calculated from the credits, and the
+            letter grade from the marks.
           </p>
           <p className="m-0 mb-3 text-[13px] text-muted">
             Every roll number must already exist under{' '}
@@ -565,6 +576,7 @@ function EditResultModal({
   const [error, setError] = useState<string | null>(null)
 
   const totals = subjects.length > 0 ? subjectTotals(subjects) : null
+  const autoSgpa = sgpaFor(subjects)
 
   async function save() {
     if (!form.student_name.trim()) {
@@ -586,7 +598,7 @@ function EditResultModal({
       subjects: subjects.map(toSubject),
       marks_obtained: totals ? totals.obtained : Number(form.marks_obtained) || 0,
       marks_max: totals ? totals.max : Number(form.marks_max) || 0,
-      sgpa: Number(form.sgpa) || 0,
+      sgpa: autoSgpa ?? (Number(form.sgpa) || 0),
       status: form.status,
       published_at: row.published_at,
       serial: row.serial,
@@ -615,7 +627,7 @@ function EditResultModal({
         <Select id="edit_status" label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as ResultRecord['status'] })} options={['PASS', 'FAIL', 'ATKT', 'WITHHELD']} />
         <Text id="edit_marks_obtained" label="Marks Obtained" value={totals ? String(totals.obtained) : form.marks_obtained} onChange={(v) => setForm({ ...form, marks_obtained: v })} readOnly={!!totals} hint={totals ? 'Added up from the subjects below.' : undefined} />
         <Text id="edit_marks_max" label="Maximum Marks" value={totals ? String(totals.max) : form.marks_max} onChange={(v) => setForm({ ...form, marks_max: v })} readOnly={!!totals} hint={totals ? 'Added up from the subjects below.' : undefined} />
-        <Text id="edit_sgpa" label="SGPA" value={form.sgpa} onChange={(v) => setForm({ ...form, sgpa: v })} />
+        <Text id="edit_sgpa" label="SGPA" value={autoSgpa === null ? form.sgpa : autoSgpa.toFixed(2)} onChange={(v) => setForm({ ...form, sgpa: v })} readOnly={autoSgpa !== null} hint={autoSgpa === null ? 'Enter credits per subject to calculate this automatically.' : 'Credit-weighted, from the subjects below.'} />
       </div>
 
       <SubjectEditor idPrefix="edit" value={subjects} onChange={setSubjects} />
@@ -708,6 +720,7 @@ function SubjectEditor({
                 <th className="border-b border-hair px-1.5 py-1 text-right font-semibold">Theory</th>
                 <th className="border-b border-hair px-1.5 py-1 text-right font-semibold">Practical</th>
                 <th className="border-b border-hair px-1.5 py-1 text-right font-semibold">Total</th>
+                <th className="border-b border-hair px-1.5 py-1 text-right font-semibold">Credits</th>
                 <th className="border-b border-hair px-1.5 py-1 text-left font-semibold">Grade</th>
                 <th className="border-b border-hair px-1.5 py-1" />
               </tr>
@@ -746,7 +759,12 @@ function SubjectEditor({
                       )}
                     </td>
                     <td className="border-b border-hair px-1.5 py-1">
-                      <Cell id={`${idPrefix}_grade_${i}`} label={`Grade, row ${i + 1}`} value={d.grade} onChange={(v) => set(i, { grade: v })} width="w-14" placeholder="A" />
+                      <Cell id={`${idPrefix}_credits_${i}`} label={`Credits, row ${i + 1}`} value={d.credits} onChange={(v) => set(i, { credits: v })} width="w-14" numeric placeholder="4" />
+                    </td>
+                    <td className="border-b border-hair px-1.5 py-1">
+                      {/* Derived from the marks: a letter that disagrees with
+                          its own percentage is only ever an error. */}
+                      <span className="block w-14 px-1 py-1 font-semibold text-jnu-800">{gradeFor(d)}</span>
                     </td>
                     <td className="whitespace-nowrap border-b border-hair px-1.5 py-1 text-right">
                       <button type="button" onClick={() => onChange(move(value, i, i - 1))} disabled={i === 0} className="mr-1 px-1 text-jnu-600 disabled:opacity-30" aria-label={`Move row ${i + 1} up`}>↑</button>
@@ -763,6 +781,7 @@ function SubjectEditor({
                 <td className="tnum px-1.5 py-1.5 text-right font-semibold">{totals.max}</td>
                 <td colSpan={2} />
                 <td className="tnum px-1.5 py-1.5 text-right font-semibold">{totals.obtained}</td>
+                <td className="tnum px-1.5 py-1.5 text-right font-semibold">{creditTotal(value) || ''}</td>
                 <td colSpan={2} />
               </tr>
             </tfoot>

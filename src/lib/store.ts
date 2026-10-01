@@ -29,6 +29,15 @@ export type Subject = {
    */
   theory?: number
   practical?: number
+  /**
+   * Credit value of the paper, used to weight SGPA.
+   *
+   * Optional for the same reason as the split: results filed before credits
+   * existed simply omit it. A result where no subject carries a credit cannot
+   * have its SGPA computed, so it keeps whatever was entered by hand — see
+   * sgpa() in lib/grading.ts, which returns null rather than guessing.
+   */
+  credits?: number
 }
 
 export type ResultRecord = {

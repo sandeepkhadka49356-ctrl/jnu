@@ -1,4 +1,5 @@
 import type { Subject } from '@/lib/store'
+import { bandForMarks, sgpa } from '@/lib/grading'
 
 /**
  * A subject row while it is being typed.
@@ -16,10 +17,11 @@ export type SubjectDraft = {
   practical: string
   obtained: string
   grade: string
+  credits: string
 }
 
 export const emptySubject = (): SubjectDraft => ({
-  code: '', name: '', max: '', theory: '', practical: '', obtained: '', grade: '',
+  code: '', name: '', max: '', theory: '', practical: '', obtained: '', grade: '', credits: '',
 })
 
 /** Is this row using the theory/practical split, or a single total? */
@@ -42,11 +44,12 @@ export function toSubject(d: SubjectDraft): Subject {
     name: d.name.trim(),
     max: Number(d.max) || 0,
     obtained,
-    grade: d.grade.trim(),
+    grade: gradeFor(d),
     // Only written when actually used: a row without the split prints its
     // total in the Theory column and an em dash under Practical, which is how
     // a paper with no practical component is meant to read.
     ...(hasSplit(d) ? { theory: Number(d.theory) || 0, practical: Number(d.practical) || 0 } : {}),
+    ...(d.credits.trim() !== '' ? { credits: Number(d.credits) || 0 } : {}),
   }
 }
 
@@ -60,6 +63,7 @@ export function fromSubject(s: Subject): SubjectDraft {
     practical: split ? String(s.practical ?? 0) : '',
     obtained: split ? '' : String(s.obtained ?? ''),
     grade: s.grade ?? '',
+    credits: s.credits === undefined ? '' : String(s.credits),
   }
 }
 
@@ -89,4 +93,40 @@ export function subjectProblem(list: SubjectDraft[]): string | null {
     if (obtained > max) return `${where}: ${obtained} out of ${max} — obtained cannot exceed the maximum.`
   }
   return null
+}
+
+/**
+ * The letter grade for a row.
+ *
+ * Derived from the marks rather than typed. A letter that disagrees with its
+ * own percentage is the kind of error nobody spots until a student queries it,
+ * and there is no case where the exam cell wants a letter the scale does not
+ * give. An explicitly typed grade is still honoured for rows that carry one
+ * and no usable maximum, so results filed before this keep what they had.
+ */
+export function gradeFor(d: SubjectDraft): string {
+  const max = Number(d.max) || 0
+  if (max <= 0) return d.grade.trim()
+  return bandForMarks(subjectObtained(d), max).letter
+}
+
+/**
+ * SGPA for a set of rows, or null when no row carries a credit.
+ *
+ * Thin wrapper so the screens never convert drafts themselves — the weighting
+ * and the scale live in lib/grading.ts and nowhere else.
+ */
+export function sgpaFor(list: SubjectDraft[]): number | null {
+  return sgpa(
+    list.map((d) => ({
+      max: Number(d.max) || 0,
+      obtained: subjectObtained(d),
+      credits: d.credits.trim() === '' ? undefined : Number(d.credits) || 0,
+    }))
+  )
+}
+
+/** Total credits across the rows, for the footer. */
+export function creditTotal(list: SubjectDraft[]): number {
+  return list.reduce((sum, d) => sum + (Number(d.credits) || 0), 0)
 }
