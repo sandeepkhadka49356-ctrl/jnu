@@ -368,7 +368,7 @@ export function ResultsManager() {
             />
             <Text id="student_name" label="Student Name" value={form.student_name} onChange={(v) => setForm({ ...form, student_name: v })} readOnly={!!form.roll_no} hint={form.roll_no ? 'From the student register.' : undefined} />
 
-            <Select id="programme" label="Programme" value={form.programme} onChange={(v) => setForm({ ...form, programme: v })} options={programmeNames} />
+            <Select id="programme" label="Programme" value={form.programme} onChange={(v) => setForm({ ...form, programme: v })} options={programmeNames} disabled={!!form.roll_no} hint={form.roll_no ? 'From the student register.' : undefined} />
             <Select id="semester" label="Semester" value={form.semester} onChange={(v) => setForm({ ...form, semester: v })} options={SEMESTERS} />
 
             <Text id="exam_session" label="Exam Session" value={form.exam_session} onChange={(v) => setForm({ ...form, exam_session: v })} placeholder="Even 2025-26" />
@@ -829,9 +829,10 @@ function Cell({
 }
 
 function Select({
-  id, label, value, onChange, options,
+  id, label, value, onChange, options, disabled, hint,
 }: {
   id: string; label: string; value: string; onChange: (v: string) => void; options: string[]
+  disabled?: boolean; hint?: string
 }) {
   return (
     <div>
@@ -839,13 +840,20 @@ function Select({
       <select
         id={id}
         value={value}
+        // A <select> has no readOnly, so this is disabled. Safe here because
+        // the value submitted comes from form state, not from the element.
+        disabled={disabled}
+        aria-describedby={hint ? `${id}-hint` : undefined}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border border-hair px-2.5 py-1.5 text-[13px] focus:border-jnu-400"
+        className={`w-full rounded border border-hair px-2.5 py-1.5 text-[13px] focus:border-jnu-400 ${
+          disabled ? 'bg-shell text-muted' : ''
+        }`}
       >
         {options.map((o) => (
           <option key={o} value={o}>{o}</option>
         ))}
       </select>
+      {hint ? <p id={`${id}-hint`} className="m-0 mt-1 text-[11px] text-muted">{hint}</p> : null}
     </div>
   )
 }

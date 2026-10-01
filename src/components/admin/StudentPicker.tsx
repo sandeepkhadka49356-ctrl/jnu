@@ -51,6 +51,7 @@ export function StudentPicker({
   const [loading, setLoading] = useState(false)
   const [active, setActive] = useState(0)
   const [searched, setSearched] = useState(false)
+  const [total, setTotal] = useState(0)
 
   const listId = useId()
   const boxRef = useRef<HTMLDivElement>(null)
@@ -63,29 +64,30 @@ export function StudentPicker({
    * typing.
    */
   useEffect(() => {
-    const q = query.trim()
-    if (q.length < 2) {
-      setRows([])
-      setSearched(false)
-      return
-    }
+    if (!open) return
 
     let current = true
     setLoading(true)
+    // No minimum length. Opening the box with nothing typed lists the first
+    // page of the register, so there is something to choose from rather than
+    // an empty box that looks broken; typing narrows it.
     const t = setTimeout(async () => {
-      const res = await getJson<{ students: Row[] }>(`/api/admin/students?q=${encodeURIComponent(q)}`)
+      const res = await getJson<{ students: Row[]; total: number }>(
+        `/api/admin/students?q=${encodeURIComponent(query.trim())}`
+      )
       if (!current) return
       setLoading(false)
       setSearched(true)
       setRows(res.ok ? res.data.students : [])
+      setTotal(res.ok ? res.data.total : 0)
       setActive(0)
-    }, 250)
+    }, query.trim() === '' ? 0 : 250)
 
     return () => {
       current = false
       clearTimeout(t)
     }
-  }, [query])
+  }, [query, open])
 
   // Clicking anywhere else closes the list. A type-ahead left hanging over the
   // rest of the form is worse than one that shuts eagerly.
@@ -158,7 +160,7 @@ export function StudentPicker({
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKeyDown}
-        placeholder="Search roll number or name"
+        placeholder="Click to list students, or type a roll number or name"
         autoComplete="off"
         role="combobox"
         aria-expanded={open && rows.length > 0}
@@ -168,7 +170,7 @@ export function StudentPicker({
         className="w-full rounded border border-hair px-2.5 py-1.5 text-[13px] focus:border-jnu-400"
       />
 
-      {open && query.trim().length >= 2 ? (
+      {open ? (
         <ul
           id={listId}
           role="listbox"
@@ -182,7 +184,9 @@ export function StudentPicker({
             // keystroke does not flash "no students" at someone mid-word.
             searched ? (
               <li className="px-3 py-2 text-[12px] text-muted">
-                No student matches that. Check the roll number, or add the student under Students.
+                {query.trim()
+                  ? 'No student matches that. Check the roll number, or add the student under Students.'
+                  : 'The student register is empty. Add a student under Students first.'}
               </li>
             ) : null
           ) : (
@@ -203,6 +207,15 @@ export function StudentPicker({
               </li>
             ))
           )}
+
+          {/* The endpoint pages at 25. Without saying so, a register of two
+              thousand looks like a register of twenty-five and the student
+              being searched for looks absent. */}
+          {!loading && total > rows.length ? (
+            <li className="border-t border-hair px-3 py-2 text-[11px] text-muted">
+              Showing {rows.length} of {total}. Type to narrow the list.
+            </li>
+          ) : null}
         </ul>
       ) : null}
 
