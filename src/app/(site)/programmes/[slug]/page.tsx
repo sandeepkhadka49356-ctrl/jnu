@@ -6,7 +6,7 @@ import { PageShell } from '@/components/layout/PageShell'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { getFaculties, getFaculty, getSite } from '@/lib/content'
 import { isAwaitingProgrammes } from '@/lib/content-dto'
-import { courseSchema, pageMetadata } from '@/lib/seo'
+import { clampDescription, courseSchema, pageMetadata } from '@/lib/seo'
 
 /**
  * One page per faculty, edited under Admin → Programmes. A faculty created
@@ -30,11 +30,21 @@ export async function generateMetadata({
 
   return pageMetadata({
     title: `${faculty.name} — Programmes`,
-    // The description carries the award names, which is what admissions
-    // queries actually search for.
-    description: pending
-      ? `${faculty.name} at ${site.name}. ${faculty.summary}`
-      : `${faculty.name} at ${site.name}. Programmes: ${awards}. ${faculty.summary}`,
+    /*
+     * Ordered by what an admissions search is looking for, and clamped to
+     * what Google shows. The award names come BEFORE the prose summary
+     * because "B.Tech Jodhpur" is the query; concatenating all three ran to
+     * 229 characters on this page and the awards were the part cut off.
+     */
+    description: clampDescription(
+      pending
+        ? [`${faculty.name} at ${site.name}, Jodhpur.`, faculty.summary]
+        : [
+            `${faculty.name} at ${site.name}, Jodhpur.`,
+            `Programmes: ${awards}.`,
+            faculty.summary,
+          ]
+    ),
     path: `/programmes/${faculty.slug}/`,
     // Nothing worth indexing until it has a programme; the sitemap applies
     // the same rule, so the two cannot disagree.
