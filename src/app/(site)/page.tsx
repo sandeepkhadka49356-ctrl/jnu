@@ -17,7 +17,23 @@ import { pageMetadata, faqSchema } from '@/lib/seo'
 
 export async function generateMetadata(): Promise<Metadata> {
   const site = await getSite()
-  return pageMetadata({ title: site.defaultTitle, description: site.defaultDescription, path: '/' })
+  const meta = pageMetadata({
+    title: site.defaultTitle,
+    description: site.defaultDescription,
+    path: '/',
+  })
+  /*
+   * The home page names the university once, not twice.
+   *
+   * Every other page's title runs through the "%s | Jodhpur National
+   * University" template, which is right for them and wrong here: the home
+   * page's own title IS the university's name, so the template produced
+   * "Jodhpur National University, Jodhpur | Jodhpur National University".
+   * Google shows roughly 60 characters of a title, and that spent 34 of them
+   * saying the same thing twice — on the one page most likely to be the
+   * result someone sees first.
+   */
+  return { ...meta, title: { absolute: site.defaultTitle } }
 }
 
 export default async function HomePage() {
