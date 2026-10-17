@@ -234,11 +234,25 @@ export function clampDescription(parts: string[], max = 158): string {
       out = next
       continue
     }
-    // Nothing banked yet and this one alone overflows: trim it at a word.
-    if (!out) {
-      const cut = part.slice(0, max)
+    /*
+     * Does not fit whole. Take as many of its words as the budget allows
+     * rather than dropping it.
+     *
+     * Dropping it whole left faculty descriptions at 95 characters of a 158
+     * budget — 60 characters of relevance given away because one sentence was
+     * a few words too long. A description ending on a complete word reads
+     * fine, and Google is going to cut it somewhere regardless.
+     *
+     * MIN_TAIL guards the opposite failure: three words of a sentence is
+     * noise, and below that it is better to stop cleanly.
+     */
+    const MIN_TAIL = 40
+    const room = max - out.length - (out ? 1 : 0)
+    if (room >= MIN_TAIL) {
+      const cut = part.slice(0, room)
       const lastSpace = cut.lastIndexOf(' ')
-      out = (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut).replace(/[,;:\s]+$/, '')
+      const tail = (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).replace(/[,;:\s]+$/, '')
+      if (tail) out = out ? `${out} ${tail}` : tail
     }
     break
   }
