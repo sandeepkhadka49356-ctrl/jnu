@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { del, getJson, move, postJson, putJson } from '@/lib/admin-client'
 import type { FacultyDTO, ProgrammeDTO } from '@/lib/content-dto'
 import { PROGRAMME_MODES } from '@/lib/content-types'
+import { BlockEditor } from '@/components/admin/BlockEditor'
+import type { Block } from '@/lib/content-types'
 import {
   Button,
   Card,
@@ -204,13 +206,15 @@ function FacultyModal({
     summary: faculty.summary ?? '',
     published: faculty.published ?? true,
   })
+  const [body, setBody] = useState<Block[]>(faculty.body ?? [])
   const [busy, setBusy] = useState(false)
 
   async function save() {
     setBusy(true)
+    const payload = { ...form, body }
     const res = faculty.id
-      ? await putJson(`/api/admin/faculties/${faculty.id}`, form)
-      : await postJson('/api/admin/faculties', form)
+      ? await putJson(`/api/admin/faculties/${faculty.id}`, payload)
+      : await postJson('/api/admin/faculties', payload)
     setBusy(false)
     if (!res.ok) {
       onError(res.error)
@@ -230,6 +234,12 @@ function FacultyModal({
         </Field>
         <Field label="Summary" hint="One or two sentences, shown on the faculty page and in search results.">
           <Textarea rows={3} value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })} />
+        </Field>
+        <Field
+          label="Page content"
+          hint="Shown below the programme table. Note boxes set to 'Maintainer' are kept here for staff and never appear on the public page."
+        >
+          <BlockEditor blocks={body} onChange={setBody} />
         </Field>
         <Check
           label="Published"

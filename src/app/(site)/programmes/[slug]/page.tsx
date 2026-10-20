@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
+import { Blocks } from '@/components/content/Blocks'
 import { PageShell } from '@/components/layout/PageShell'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { getFaculties, getFaculty, getSite } from '@/lib/content'
@@ -140,6 +141,17 @@ export default async function FacultyPage({ params }: { params: Promise<{ slug: 
                 </tbody>
               </table>
             </div>
+
+            {/* Prose below the table: eligibility in detail, facilities,
+                where the qualification leads, and the questions applicants
+                actually ask. The table answers what is offered; this answers
+                whether to apply. */}
+            {/* ?? [] because this object can come from a cache written
+                before the field existed: unstable_cache keeps the serialised
+                FacultyDTO across a deploy, so the first render after one that
+                adds a field sees it missing. Crashed the whole page the first
+                time. */}
+            <Blocks blocks={faculty.body ?? []} />
 
             <p className="mt-6">
               <Link href="/admission/process/" className="btn btn-primary">

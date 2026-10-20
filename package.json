@@ -16,7 +16,8 @@
     "images": "tsx scripts/optimise-images.ts",
     "db:seed:demo": "tsx prisma/seed-demo.ts",
     "admin:create": "tsx scripts/create-admin.ts",
-    "preview": "next build && next start"
+    "preview": "next build && next start",
+    "db:seed:faculty": "tsx prisma/seed-faculty-content.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

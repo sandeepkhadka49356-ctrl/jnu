@@ -448,6 +448,13 @@ model Faculty {
   slug       String      @unique
   name       String
   summary    String
+  /// JSON Block[] — the prose below the programme table.
+  ///
+  /// Same typed blocks as Page.body, never raw HTML, so an editor cannot
+  /// inject script into the public site. Faculty pages carried only a one-line
+  /// summary before this, which left them at about 175 words of real content
+  /// and unable to compete for the course queries they exist to answer.
+  body       String      @default("[]")
   sortOrder  Int         @default(0)
   published  Boolean     @default(true)
   programmes Programme[]

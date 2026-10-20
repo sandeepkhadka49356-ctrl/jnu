@@ -23,6 +23,8 @@ export type FacultyDTO = {
   slug: string
   name: string
   summary: string
+  /** Prose below the programme table. Parsed from JSON, never raw HTML. */
+  body: Block[]
   published: boolean
   sortOrder: number
   programmes: ProgrammeDTO[]

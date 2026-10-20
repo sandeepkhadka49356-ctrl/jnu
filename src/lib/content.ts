@@ -200,6 +200,7 @@ async function readFaculties(includeUnpublished: boolean): Promise<FacultyDTO[]>
     slug: f.slug,
     name: f.name,
     summary: f.summary,
+    body: normaliseBlocks(parseJson(f.body)),
     published: f.published,
     sortOrder: f.sortOrder,
     programmes: f.programmes.map((p) => ({
@@ -242,14 +243,23 @@ type PageRow = {
   updatedAt: Date
 }
 
-function toPage(r: PageRow): PageDTO {
-  const parse = (s: string) => {
-    try {
-      return JSON.parse(s)
-    } catch {
-      return []
-    }
+/**
+ * Parse a JSON column that holds an array, falling back to empty.
+ *
+ * A row whose JSON has been corrupted should cost that one field, not the
+ * whole page: throwing here would take down every faculty listing because a
+ * single body string was malformed.
+ */
+function parseJson(s: string): unknown {
+  try {
+    return JSON.parse(s)
+  } catch {
+    return []
   }
+}
+
+function toPage(r: PageRow): PageDTO {
+  const parse = parseJson
   return {
     id: r.id,
     path: r.path,

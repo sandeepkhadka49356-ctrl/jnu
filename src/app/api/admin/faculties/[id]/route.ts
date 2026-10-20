@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { ok, fail, handleError } from '@/lib/api'
 import { audit, body, requireAny, s } from '@/lib/admin-route'
+import { normaliseBlocks } from '@/lib/content-types'
 import { slugify } from '@/lib/content-types'
 import { revalidateContent } from '@/lib/revalidate'
 
@@ -24,7 +25,15 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
 
     await db.faculty.update({
       where: { id },
-      data: { name, slug, summary: s(input.summary, 400), published: input.published !== false },
+      data: {
+        name,
+        slug,
+        summary: s(input.summary, 400),
+        // normaliseBlocks is the gate: anything the editor sends that is not
+        // a known block type is dropped, so the column can never hold markup.
+        body: JSON.stringify(normaliseBlocks(input.body)),
+        published: input.published !== false,
+      },
     })
     await audit(
       user,

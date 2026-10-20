@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { ok, fail, handleError } from '@/lib/api'
 import { audit, body, requireAny, s } from '@/lib/admin-route'
+import { normaliseBlocks } from '@/lib/content-types'
 import { getFacultiesAdmin } from '@/lib/content'
 import { slugify } from '@/lib/content-types'
 import { revalidateContent } from '@/lib/revalidate'
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
         name,
         slug,
         summary: s(input.summary, 400),
+        body: JSON.stringify(normaliseBlocks(input.body)),
         published: input.published !== false,
         sortOrder: (last?.sortOrder ?? -1) + 1,
       },
