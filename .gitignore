@@ -22,3 +22,8 @@ Thumbs.db
 # Uploaded documents (Aadhaar scans, photographs). Personal data — never
 # committed, and deliberately outside public/ so it is never served directly.
 /var/
+
+# Database dumps: students, results and certificates — personal data under
+# the DPDP Act. These must never reach the repository.
+jnu-dump-*.json
+jnu-neon-dump-*.json
