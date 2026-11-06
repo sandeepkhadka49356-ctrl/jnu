@@ -74,14 +74,31 @@ ssh jnu@YOUR_SERVER_IP
 If that fails, fix it now — do not proceed. Locking yourself out of a fresh VPS
 means asking support to rebuild it.
 
-Once it works, harden SSH:
+Once it works, harden SSH.
+
+**Do not edit `/etc/ssh/sshd_config` for this.** Ubuntu 24.04 cloud images ship
+`/etc/ssh/sshd_config.d/60-cloudimg-settings.conf`, which sets
+`PasswordAuthentication yes`, and sshd takes the **first** value it reads for a
+keyword. The drop-in is read before your edit, so the edit is ignored in
+silence — the file says one thing and the server does another. Write a drop-in
+that sorts earlier instead:
 
 ```bash
-sudo nano /etc/ssh/sshd_config
-#   PermitRootLogin no
-#   PasswordAuthentication no
+sudo tee /etc/ssh/sshd_config.d/00-hardening.conf > /dev/null <<'EOF'
+# Sorts before 60-cloudimg-settings.conf. sshd takes the FIRST value it sees
+# for each keyword, so this file wins over anything set later.
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+EOF
+
+sudo sshd -t && echo "config OK"      # syntax check BEFORE restarting
 sudo systemctl restart ssh
 ```
+
+Verify from another window before closing this one. `ssh jnu@IP` should still
+work, and `ssh root@IP` should answer `Permission denied (publickey)` — the
+`(publickey)` confirms password authentication is off as well.
 
 ---
 
