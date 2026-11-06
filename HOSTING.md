@@ -1,8 +1,13 @@
-# Hosting runbook — YouStable VPS
+# Hosting runbook — Hoststack VPS
 
-Deploying this site to a **YouStable vStart VPS** (1 vCPU, 4 GB RAM, 50 GB NVMe,
-Ubuntu 24.04 LTS, Mumbai) with **Cloudflare** in front and the domain
+Deploying this site to a **Hoststack Boost X2 VPS** (2 vCPU, 4 GB RAM, 80 GB
+NVMe, Ubuntu 24.04 LTS, Mumbai) with **Cloudflare** in front and the domain
 **jodhpurnationaluniversityjodhpur.org** registered at GoDaddy.
+
+> **Billed annually, and that is deliberate.** The first server on this project
+> was terminated and permanently deleted — disk image included — over a single
+> unpaid monthly invoice, with no suspension period. Turn on auto-pay, and put
+> a reminder in a calendar a fortnight before the renewal date.
 
 Follow it top to bottom the first time. Every command runs on the server unless
 it says otherwise.
@@ -50,6 +55,11 @@ Create a user to run the app. Nothing should run as root.
 ```bash
 adduser --disabled-password --gecos "" jnu
 usermod -aG sudo jnu
+
+# Give the account a password. --disabled-password above means it has none,
+# and an account with no password cannot use sudo at all: every sudo command
+# fails authentication with no way to recover except logging back in as root.
+passwd jnu
 mkdir -p /home/jnu/.ssh && chmod 700 /home/jnu/.ssh
 nano /home/jnu/.ssh/authorized_keys      # paste your PUBLIC key, save
 chown -R jnu:jnu /home/jnu/.ssh && chmod 600 /home/jnu/.ssh/authorized_keys
