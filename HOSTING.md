@@ -359,11 +359,6 @@ jodhpurnationaluniversityjodhpur.org {
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
 	}
-
-	log {
-		output file /var/log/caddy/jnu.log
-		format json
-	}
 }
 
 # One canonical host. Serving both splits ranking signals between two URLs
@@ -378,7 +373,17 @@ www.jodhpurnationaluniversityjodhpur.org {
 
 ```bash
 sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl reload caddy
+sudo systemctl restart caddy
+sudo systemctl status caddy --no-pager | head -6      # expect active (running)
+```
+
+**No `log` block, deliberately.** Writing to `/var/log/caddy/jnu.log` fails with
+`permission denied` on a stock install — the config still validates, so
+`caddy validate` says it is fine and only the service start fails. Caddy logs
+to journald without any of that:
+
+```bash
+sudo journalctl -u caddy -f
 ```
 
 Visit `https://jodhpurnationaluniversityjodhpur.org` — it should load with a
