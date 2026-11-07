@@ -17,7 +17,7 @@ import { pageMetadata, faqSchema } from '@/lib/seo'
 
 export async function generateMetadata(): Promise<Metadata> {
   const site = await getSite()
-  const meta = pageMetadata({
+  const meta = await pageMetadata({
     title: site.defaultTitle,
     description: site.defaultDescription,
     path: '/',
