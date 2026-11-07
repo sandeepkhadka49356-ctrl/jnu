@@ -17,9 +17,19 @@ import { PrismaClient } from '@prisma/client'
  * and certificates, uploads before anything referencing a photo — otherwise a
  * foreign key fails halfway and leaves a partial database that looks restored.
  *
- * Safe to run against a database that already has rows: each record is
- * upserted on its primary key, so a second run changes nothing and a partial
- * first run can simply be repeated.
+ * REPLACES the tables it restores. Every table present in the dump is emptied
+ * first, children before parents, then refilled parents before children.
+ *
+ * Merging was tried and is wrong. A fresh server has already been seeded with
+ * default content, and those rows carry different ids but the same natural
+ * keys — so upserting by id tries to insert a second page with an existing
+ * path and dies on the unique constraint. A restore is not a merge: the dump
+ * is the authority, and anything the dump does not contain was not in the
+ * database when it was taken.
+ *
+ * This means it will DISCARD rows added since the dump. That is what restoring
+ * a backup does, but it is worth knowing before running it against a database
+ * that has been in use.
  */
 
 type Dump = {
@@ -70,6 +80,22 @@ async function main() {
   let total = 0
 
   try {
+    /*
+     * Empty first, children before parents, or a delete fails on a foreign
+     * key held by a row we are about to remove anyway.
+     */
+    console.log('Clearing tables the dump will replace...')
+    for (const model of [...ORDER].reverse()) {
+      const rows = dump.tables[model]
+      if (!Array.isArray(rows) || rows.length === 0) continue
+      const client = (db as unknown as Record<string, {
+        deleteMany: (a?: unknown) => Promise<{ count: number }>
+      }>)[model]
+      const { count } = await client.deleteMany({})
+      if (count > 0) console.log(`  ×  ${model}: removed ${count}`)
+    }
+    console.log()
+
     for (const model of ORDER) {
       const rows = dump.tables[model]
 
