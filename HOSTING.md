@@ -491,6 +491,32 @@ And off-site:
 
 ---
 
+## 14a. Restoring a database backup
+
+```bash
+cd /srv/jnu
+npm run db:restore /path/to/jnu-dump-YYYY-MM-DD.json
+rm -rf .next                 # NOT optional — see below
+npm run build
+sudo systemctl restart jnu
+```
+
+**`rm -rf .next` is the step that catches people.** Public pages are
+prerendered at build time, and the content reads behind them go through
+`unstable_cache`, which Next persists to `.next/cache` and reuses across
+builds. So a build run after a restore will happily regenerate every page from
+the *cached* database reads taken before it — the database is right, the build
+is fresh, the service has restarted, and the site still shows the old content
+with nothing anywhere reporting a problem.
+
+Removing `.next` entirely forces every page to be read from the database again.
+
+The same cache explains a crash of the form `Cannot read properties of
+undefined` on a field added in the deploy you are running: the cached DTO was
+serialised before that field existed.
+
+---
+
 ## 15. Deploying a change
 
 ```bash
