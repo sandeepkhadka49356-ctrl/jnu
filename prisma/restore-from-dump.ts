@@ -27,6 +27,16 @@ type Dump = {
   tables: Record<string, Record<string, unknown>[] | string>
 }
 
+/**
+ * The primary key of each model that is not `id`.
+ *
+ * Setting is keyed by `key` — it is a key/value table, so a cuid would be a
+ * second identity for a row that already has one. Everything else uses `id`.
+ * Getting this wrong fails on the very first table with a Prisma error about
+ * SettingWhereUniqueInput, which does not obviously mean "wrong column".
+ */
+const PRIMARY_KEY: Record<string, string> = { setting: 'key' }
+
 /** Parent before child. Anything not listed here is skipped deliberately. */
 const ORDER = [
   'setting',
@@ -86,11 +96,12 @@ async function main() {
         upsert: (a: unknown) => Promise<unknown>
       }>)[model]
 
+      const pk = PRIMARY_KEY[model] ?? 'id'
       let done = 0
       for (const row of revived) {
         // Upsert rather than create: a repeated run is then harmless, which
         // matters when a restore fails partway and has to be run again.
-        await client.upsert({ where: { id: row.id }, update: row, create: row })
+        await client.upsert({ where: { [pk]: row[pk] }, update: row, create: row })
         done++
       }
 
